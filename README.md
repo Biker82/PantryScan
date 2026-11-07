@@ -5,6 +5,8 @@
 
 &#x27A1; **Essensvorräte einfach mit einem Barcode-Scanner in einer Tabelle organisieren.**
 
+*erstellt mit Gemini Argon*
+
 ![PantryScan1.jpg](PantryScan1.jpg)
 ![PantryScan2.jpg](PantryScan2.jpg)
 
