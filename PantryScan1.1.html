@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lebensmittel Bestandsaufnahme</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTML5 QRCode Library -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        /* Custom Scrollbar */
+        .table-container::-webkit-scrollbar { height: 8px; width: 8px; }
+        .table-container::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .table-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .table-container::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Scanner Viewport Fix */
+        #reader { width: 100%; border-radius: 0.5rem; overflow: hidden; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }
+        #reader video { border-radius: 0.5rem; }
+        
+        /* Pulsating Mic Animation */
+        @keyframes pulse-mic {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .mic-listening {
+            animation: pulse-mic 1.5s infinite;
+            background-color: #ef4444 !important; /* Tailwind red-500 */
+            color: white !important;
+            border-color: #ef4444 !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm p-4 sticky top-0 z-10">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    PantryScan
+                </h1>
+                <p class="text-xs text-slate-500 mt-1">Optimiert für Google Chrome</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-4xl mx-auto w-full p-4 flex flex-col gap-6">
+        
+        <!-- Scanner Section -->
+        <section class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+            <div id="reader-container" class="w-full max-w-sm mb-4 hidden">
+                <div id="reader"></div>
+            </div>
+            
+            <button id="toggle-scanner-btn" class="w-full max-w-sm bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span id="toggle-scanner-text">Scanner starten</span>
+            </button>
+            <p id="scanner-status" class="text-sm text-slate-500 mt-2 text-center">Tipp: Erlaube den Kamera- und Mikrofonzugriff.</p>
+        </section>
+
+        <!-- Inventory List Section -->
+        <section class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex-grow flex flex-col">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                <h2 class="text-lg font-bold text-slate-700">Bestandsliste</h2>
+                
+                <div class="flex gap-2 w-full sm:w-auto flex-wrap">
+                    <button id="manual-add-btn" class="flex-1 sm:flex-none text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Manuell hinzufügen
+                    </button>
+
+                    <!-- Import hidden input -->
+                    <input type="file" id="import-csv-input" accept=".csv" class="hidden">
+                    
+                    <button id="import-csv-btn" class="flex-1 sm:flex-none text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Import
+                    </button>
+
+                    <button id="export-csv-btn" class="flex-1 sm:flex-none text-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-1" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export
+                    </button>
+                </div>
+            </div>
+            
+            <div class="table-container overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="w-full text-left border-collapse min-w-max">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-600 text-sm uppercase tracking-wider">
+                            <th class="px-4 py-3 border-b border-slate-200 font-semibold">Barcode</th>
+                            <th class="px-4 py-3 border-b border-slate-200 font-semibold">Produkt</th>
+                            <th class="px-4 py-3 border-b border-slate-200 font-semibold">MHD</th>
+                            <th class="px-4 py-3 border-b border-slate-200 font-semibold text-center w-16">Aktion</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-table-body" class="text-slate-700 divide-y divide-slate-100">
+                        <!-- Empty State -->
+                        <tr id="empty-state-row">
+                            <td colspan="4" class="px-4 py-8 text-center text-slate-400 italic">
+                                Noch keine Lebensmittel erfasst.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal Overlay -->
+    <div id="entry-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden transform scale-95 transition-transform duration-300 modal-content">
+            <!-- Modal Header -->
+            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                <h3 id="modal-title" class="text-lg font-bold text-slate-800">Produktdetails</h3>
+                <div id="modal-loading-spinner" class="hidden">
+                    <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="p-6 flex flex-col gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Barcode</label>
+                    <input type="text" id="modal-barcode" placeholder="Optional" class="w-full bg-white border border-slate-300 rounded-lg px-4 py-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Produktname <span class="text-xs font-normal text-slate-400">(Enter drücken für Spracheingabe)</span></label>
+                    <input type="text" id="modal-product" placeholder="Z.B. Hafermilch" class="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Mindesthaltbarkeitsdatum (MHD)</label>
+                    <div class="flex gap-2 relative">
+                        <input type="text" id="modal-date" placeholder="Diktieren oder tippen..." class="w-full bg-white border border-slate-300 rounded-lg pl-4 pr-12 py-2.5 text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all">
+                        <button id="mic-icon" class="absolute right-1 top-1 bottom-1 w-10 flex items-center justify-center bg-slate-100 text-slate-500 rounded-md transition-colors" title="Spracheingabe starten">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p id="speech-status" class="text-xs text-rose-500 mt-1 hidden">Bitte Datum jetzt sprechen...</p>
+                </div>
+            </div>
+            
+            <!-- Modal Footer -->
+            <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
+                <button id="cancel-btn" class="px-5 py-2.5 text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 font-medium rounded-xl transition-colors">
+                    Abbrechen
+                </button>
+                <button id="save-btn" class="px-5 py-2.5 text-white bg-indigo-600 hover:bg-indigo-700 font-medium rounded-xl shadow-sm transition-colors">
+                    Speichern
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Speech Recognition Modal (Optimiert für Firefox/Mobile) -->
+    <div id="speech-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[60] hidden flex items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col items-center p-8 text-center transition-transform duration-300 scale-95 modal-content">
+            <div class="w-24 h-24 bg-rose-100 rounded-full flex items-center justify-center mb-6 relative">
+                <div class="absolute inset-0 rounded-full bg-rose-500 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite] opacity-20"></div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-rose-600 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+            </div>
+            <h3 class="text-xl font-bold text-slate-800 mb-2">Bitte sprechen...</h3>
+            <p id="speech-modal-text" class="text-slate-500 mb-8">Mindesthaltbarkeitsdatum diktieren</p>
+            <button id="speech-manual-btn" class="px-6 py-3 w-full text-slate-700 bg-slate-100 hover:bg-slate-200 font-medium rounded-xl transition-colors">
+                Manuell eingeben
+            </button>
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // State
+            let inventory = [];
+            let html5QrCode = null;
+            let isScanning = false;
+            let isPaused = false;
+            let editingId = null;
+            
+            // Speech Recognition Setup
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            let recognition = null;
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'de-DE';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+            }
+
+            // DOM Elements
+            const toggleScannerBtn = document.getElementById('toggle-scanner-btn');
+            const toggleScannerText = document.getElementById('toggle-scanner-text');
+            const readerContainer = document.getElementById('reader-container');
+            const scannerStatus = document.getElementById('scanner-status');
+            
+            const inventoryTableBody = document.getElementById('inventory-table-body');
+            const emptyStateRow = document.getElementById('empty-state-row');
+            
+            const exportCsvBtn = document.getElementById('export-csv-btn');
+            const importCsvBtn = document.getElementById('import-csv-btn');
+            const importCsvInput = document.getElementById('import-csv-input');
+            const manualAddBtn = document.getElementById('manual-add-btn');
+            
+            const entryModal = document.getElementById('entry-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = entryModal.querySelector('.modal-content');
+            const modalBarcode = document.getElementById('modal-barcode');
+            const modalProduct = document.getElementById('modal-product');
+            const modalDate = document.getElementById('modal-date');
+            const micIcon = document.getElementById('mic-icon');
+            const speechStatus = document.getElementById('speech-status');
+            
+            const cancelBtn = document.getElementById('cancel-btn');
+            const saveBtn = document.getElementById('save-btn');
+            const modalLoadingSpinner = document.getElementById('modal-loading-spinner');
+
+            const speechModal = document.getElementById('speech-modal');
+            const speechModalContent = speechModal.querySelector('.modal-content');
+            const speechModalText = document.getElementById('speech-modal-text');
+            const speechManualBtn = document.getElementById('speech-manual-btn');
+
+            // --- Scanner Logic ---
+            function initScanner() {
+                if (!html5QrCode) {
+                    html5QrCode = new Html5Qrcode("reader");
+                }
+            }
+
+            async function toggleScanner() {
+                initScanner();
+
+                if (isScanning) {
+                    try {
+                        await html5QrCode.stop();
+                        isScanning = false;
+                        isPaused = false;
+                        readerContainer.classList.add('hidden');
+                        toggleScannerText.textContent = "Scanner starten";
+                        toggleScannerBtn.classList.replace('bg-rose-600', 'bg-indigo-600');
+                        toggleScannerBtn.classList.replace('hover:bg-rose-700', 'hover:bg-indigo-700');
+                        scannerStatus.textContent = "";
+                    } catch (err) {
+                        console.error("Fehler beim Stoppen des Scanners:", err);
+                    }
+                } else {
+                    readerContainer.classList.remove('hidden');
+                    scannerStatus.textContent = "Kamera wird gestartet...";
+                    
+                    const config = { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 };
+
+                    try {
+                        try {
+                            // Versuche zuerst die Rückkamera (Smartphone)
+                            await html5QrCode.start(
+                                { facingMode: "environment" },
+                                config,
+                                onScanSuccess,
+                                () => {} // Ignoriere Frame-Fehler
+                            );
+                        } catch (err) {
+                            console.warn("Rückkamera nicht gefunden, versuche Fallback...", err);
+                            // Fallback für PCs/Laptops ohne spezifische Rückkamera
+                            const cameras = await Html5Qrcode.getCameras();
+                            if (cameras && cameras.length > 0) {
+                                await html5QrCode.start(
+                                    cameras[0].id,
+                                    config,
+                                    onScanSuccess,
+                                    () => {}
+                                );
+                            } else {
+                                throw new Error("Keine Kamera gefunden.");
+                            }
+                        }
+                        
+                        isScanning = true;
+                        isPaused = false;
+                        toggleScannerText.textContent = "Scanner stoppen";
+                        toggleScannerBtn.classList.replace('bg-indigo-600', 'bg-rose-600');
+                        toggleScannerBtn.classList.replace('hover:bg-indigo-700', 'hover:bg-rose-700');
+                        scannerStatus.textContent = "Halte einen Barcode in die Kamera";
+                    } catch (err) {
+                        console.error("Fehler beim Starten:", err);
+                        scannerStatus.textContent = "Fehler: Kamera-Zugriff verweigert oder nicht gefunden.";
+                        readerContainer.classList.add('hidden');
+                    }
+                }
+            }
+
+            async function onScanSuccess(decodedText) {
+                if (isPaused) return;
+
+                // Scanner pausieren
+                if (isScanning && html5QrCode.getState() === 2) {
+                    try {
+                        html5QrCode.pause(true);
+                        isPaused = true;
+                    } catch (e) {
+                        console.warn("Konnte nicht pausieren", e);
+                    }
+                }
+                
+                openModal(decodedText, "", true);
+                
+                // API Call zu Open Food Facts
+                try {
+                    const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${decodedText}.json`);
+                    const data = await response.json();
+                    
+                    if (data.status === 1 && data.product && data.product.product_name) {
+                        modalProduct.value = data.product.product_name;
+                        // Produkt gefunden -> Starte sofort das Mikrofon
+                        startSpeechRecognition();
+                    } else {
+                        // Nicht gefunden -> Fokussiere manuelle Eingabe
+                        modalProduct.focus();
+                    }
+                } catch (error) {
+                    console.error("API Fehler:", error);
+                    modalProduct.focus();
+                } finally {
+                    modalLoadingSpinner.classList.add('hidden');
+                }
+            }
+
+            // --- Speech Recognition Logic ---
+            function startSpeechRecognition() {
+                if (!recognition) {
+                    alert("Dein Browser unterstützt leider keine Spracherkennung (Web Speech API). Bitte tippe das Datum ein.");
+                    modalDate.focus();
+                    return;
+                }
+
+                // Modal für Firefox/Mobile vorbereiten und anzeigen
+                speechModalText.textContent = "Haltbarkeitsdatum diktieren...";
+                speechModal.classList.remove('hidden');
+                setTimeout(() => {
+                    speechModal.classList.remove('opacity-0');
+                    speechModalContent.classList.remove('scale-95');
+                }, 10);
+
+                recognition.onstart = () => {
+                    micIcon.classList.add('mic-listening');
+                    speechStatus.classList.remove('hidden');
+                    modalDate.value = ""; 
+                };
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    modalDate.value = transcript;
+                    speechModalText.textContent = "Erkannt: " + transcript;
+                    
+                    // Nach erfolgreicher Erkennung Modal schließen und speichern
+                    setTimeout(() => {
+                        closeSpeechModal();
+                        saveEntry(); // Automatisches Speichern und Fortsetzen des Scanners
+                    }, 1000);
+                };
+
+                recognition.onerror = (event) => {
+                    console.error("Spracherkennungsfehler", event);
+                    speechModalText.textContent = "Fehler bei der Erkennung. Bitte manuell eingeben.";
+                };
+
+                recognition.onend = () => {
+                    micIcon.classList.remove('mic-listening');
+                    speechStatus.classList.add('hidden');
+                };
+
+                try {
+                    recognition.start();
+                } catch (e) {
+                    console.warn("Erkennung läuft bereits.");
+                }
+            }
+            
+            function closeSpeechModal() {
+                speechModal.classList.add('opacity-0');
+                speechModalContent.classList.add('scale-95');
+                setTimeout(() => {
+                    speechModal.classList.add('hidden');
+                }, 300);
+                try { recognition.stop(); } catch(e) {}
+            }
+            
+            // Fallback für Firefox: Manuelle Eingabe direkt aus dem Modal auslösen
+            speechManualBtn.addEventListener('click', () => {
+                closeSpeechModal();
+                modalDate.focus();
+            });
+
+            micIcon.addEventListener('click', startSpeechRecognition);
+
+            // --- Modal Logic ---
+            function openModal(barcode, productName = "", isLoading = false) {
+                editingId = null;
+                modalTitle.textContent = "Produktdetails";
+                modalBarcode.value = barcode;
+                modalProduct.value = productName;
+                modalDate.value = "";
+                
+                if (isLoading) modalLoadingSpinner.classList.remove('hidden');
+                else modalLoadingSpinner.classList.add('hidden');
+
+                entryModal.classList.remove('hidden');
+                setTimeout(() => {
+                    entryModal.classList.remove('opacity-0');
+                    modalContent.classList.remove('scale-95');
+                }, 10);
+            }
+
+            function closeModal() {
+                entryModal.classList.add('opacity-0');
+                modalContent.classList.add('scale-95');
+                editingId = null;
+                
+                if(recognition) {
+                    try { recognition.stop(); } catch(e) {}
+                }
+                
+                setTimeout(() => {
+                    entryModal.classList.add('hidden');
+                    
+                    // Setze Scanner fort, falls pausiert
+                    if (isScanning && isPaused && html5QrCode.getState() === 3) {
+                        try {
+                            html5QrCode.resume();
+                            isPaused = false;
+                        } catch (e) {
+                            console.warn("Konnte Scanner nicht fortsetzen.", e);
+                        }
+                    }
+                }, 300);
+            }
+
+            function saveEntry() {
+                const barcode = modalBarcode.value.trim();
+                const product = modalProduct.value.trim() || 'Unbekanntes Produkt';
+                const dateText = modalDate.value.trim();
+
+                if (editingId) {
+                    // Update existing entry
+                    const index = inventory.findIndex(i => i.id === editingId);
+                    if (index !== -1) {
+                        inventory[index].barcode = barcode;
+                        inventory[index].product = product;
+                        inventory[index].date = dateText;
+                    }
+                } else {
+                    // Create new entry
+                    const entry = {
+                        id: Date.now().toString(),
+                        barcode: barcode,
+                        product: product,
+                        date: dateText
+                    };
+                    inventory.unshift(entry);
+                }
+
+                renderTable();
+                closeModal();
+            }
+
+            // --- Table & Data Logic ---
+            window.deleteEntry = function(id) {
+                inventory = inventory.filter(item => item.id !== id);
+                renderTable();
+            };
+
+            window.editEntry = function(id) {
+                const item = inventory.find(i => i.id === id);
+                if(item) {
+                    editingId = id;
+                    modalTitle.textContent = "Eintrag bearbeiten";
+                    modalBarcode.value = item.barcode;
+                    modalProduct.value = item.product;
+                    modalDate.value = item.date;
+                    modalLoadingSpinner.classList.add('hidden');
+                    
+                    entryModal.classList.remove('hidden');
+                    setTimeout(() => {
+                        entryModal.classList.remove('opacity-0');
+                        modalContent.classList.remove('scale-95');
+                    }, 10);
+                }
+            };
+
+            function renderTable() {
+                if (inventory.length === 0) {
+                    emptyStateRow.style.display = 'table-row';
+                    exportCsvBtn.disabled = true;
+                    exportCsvBtn.classList.replace('bg-emerald-50', 'bg-slate-100');
+                    exportCsvBtn.classList.replace('text-emerald-700', 'text-slate-400');
+                    
+                    // Alle Zeilen außer Empty-State löschen
+                    const rows = inventoryTableBody.querySelectorAll('tr:not(#empty-state-row)');
+                    rows.forEach(row => row.remove());
+                    return;
+                }
+
+                emptyStateRow.style.display = 'none';
+                exportCsvBtn.disabled = false;
+                exportCsvBtn.classList.replace('bg-slate-100', 'bg-emerald-50');
+                exportCsvBtn.classList.replace('text-slate-400', 'text-emerald-700');
+
+                const rows = inventoryTableBody.querySelectorAll('tr:not(#empty-state-row)');
+                rows.forEach(row => row.remove());
+
+                inventory.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-50 transition-colors group';
+                    
+                    // Badge-Farbe basierend darauf, ob ein Datum vorhanden ist
+                    const dateHtml = item.date 
+                        ? `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-amber-100 text-amber-800">${item.date}</span>`
+                        : `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-500">-</span>`;
+
+                    tr.innerHTML = `
+                        <td class="px-4 py-3 border-b border-slate-100 font-mono text-sm">${item.barcode}</td>
+                        <td class="px-4 py-3 border-b border-slate-100 font-medium">${item.product}</td>
+                        <td class="px-4 py-3 border-b border-slate-100 whitespace-nowrap">${dateHtml}</td>
+                        <td class="px-4 py-3 border-b border-slate-100 text-center whitespace-nowrap">
+                            <button onclick="editEntry('${item.id}')" class="text-slate-300 hover:text-indigo-500 transition-colors p-1 mr-1" title="Eintrag bearbeiten">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                            </button>
+                            <button onclick="deleteEntry('${item.id}')" class="text-slate-300 hover:text-rose-500 transition-colors p-1" title="Eintrag löschen">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </td>
+                    `;
+                    inventoryTableBody.appendChild(tr);
+                });
+            }
+
+            // --- CSV Import & Export ---
+            function exportToCSV() {
+                if (inventory.length === 0) return;
+
+                const headers = ['Barcode', 'Produkt', 'Mindesthaltbarkeitsdatum'];
+                const csvRows = [headers.join(';')];
+
+                inventory.forEach(item => {
+                    const escapedProduct = `"${item.product.replace(/"/g, '""')}"`;
+                    const escapedDate = `"${item.date.replace(/"/g, '""')}"`;
+                    const row = [item.barcode, escapedProduct, escapedDate];
+                    csvRows.push(row.join(';'));
+                });
+
+                const csvContent = "\uFEFF" + csvRows.join('\n'); // UTF-8 BOM
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                
+                const link = document.createElement("a");
+                link.setAttribute("href", url);
+                link.setAttribute("download", `bestandsaufnahme_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+
+            importCsvBtn.addEventListener('click', () => importCsvInput.click());
+
+            importCsvInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const rows = text.split('\n');
+                    
+                    let importedCount = 0;
+                    
+                    // Ab Zeile 1 (überspringe Header)
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i].trim();
+                        if (!row) continue;
+
+                        // Einfacher Split am Semikolon (berücksichtigt einfache Anführungszeichen)
+                        // Für ein vollumfängliches Parsing wäre ein Regex nötig, aber für dieses Tool reicht split + replace
+                        const cols = row.split(';');
+                        if (cols.length >= 2) {
+                            const barcode = cols[0].replace(/^"|"$/g, '');
+                            const product = cols[1].replace(/^"|"$/g, '');
+                            const date = (cols[2] || '').replace(/^"|"$/g, '');
+                            
+                            // Nur einfügen, wenn Barcode und Produkt vorhanden sind
+                            if (barcode && product) {
+                                inventory.push({
+                                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                                    barcode: barcode,
+                                    product: product,
+                                    date: date
+                                });
+                                importedCount++;
+                            }
+                        }
+                    }
+                    
+                    if(importedCount > 0) {
+                        renderTable();
+                        alert(`${importedCount} Einträge erfolgreich importiert.`);
+                    } else {
+                        alert("Keine gültigen Daten in der CSV-Datei gefunden. Stelle sicher, dass die Trennzeichen Semikolons (;) sind.");
+                    }
+                    // Reset File Input
+                    importCsvInput.value = '';
+                };
+                reader.readAsText(file, 'UTF-8');
+            });
+
+            manualAddBtn.addEventListener('click', () => {
+                editingId = null;
+                modalTitle.textContent = "Produkt manuell hinzufügen";
+                modalBarcode.value = "";
+                modalProduct.value = "";
+                modalDate.value = "";
+                modalLoadingSpinner.classList.add('hidden');
+                
+                entryModal.classList.remove('hidden');
+                setTimeout(() => {
+                    entryModal.classList.remove('opacity-0');
+                    modalContent.classList.remove('scale-95');
+                }, 10);
+            });
+
+            // --- Event Listeners ---
+            toggleScannerBtn.addEventListener('click', toggleScanner);
+            cancelBtn.addEventListener('click', closeModal);
+            saveBtn.addEventListener('click', saveEntry);
+            exportCsvBtn.addEventListener('click', exportToCSV);
+            
+            // Wenn Produkt manuell eingegeben und Enter gedrückt wird -> Starte Mikrofon für Datum
+            modalProduct.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    startSpeechRecognition();
+                }
+            });
+            
+            // Enter im Datums-Feld feuert Speichern
+            modalDate.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') saveEntry();
+            });
+        });
+    </script>
+</body>
+</html>
